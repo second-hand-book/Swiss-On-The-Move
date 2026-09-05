@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coop, Migros, and Me</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: #ffffff; color: #111; overflow: hidden; }
+    #app { display: flex; width: 100vw; height: 100vh; position: relative; background: #ffffff; }
+
+    #map-container {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      clip-path: url(#organic-blob-clip);
+      transform: translateY(-10.5vh);
+      transition: width 0.3s ease;
+    }
+    #map {
+      position: absolute;
+      top: -15%;
+      left: -15%;
+      width: 130%;
+      height: 130%;
+      background: #ffffff;
+      transform: translate(3%, 6%);
+    }
+
+    #split-panel {
+      display: none;
+      width: 45%;
+      height: 100%;
+      background: #ffffff;
+      border-left: 1px solid #e5e5e0;
+      z-index: 1000;
+      overflow-y: auto;
+      box-shadow: -10px 0 30px rgba(0,0,0,0.05);
+      position: relative;
+    }
+    .panel-content { padding: 40px; display: flex; flex-direction: column; min-height: 100%; }
+    .close-btn { position: absolute; top: 20px; right: 25px; font-size: 22px; cursor: pointer; color: #888; }
+    .close-btn:hover { color: #000; }
+    .tag { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #e63946; text-transform: uppercase; margin-bottom: 8px; }
+    h2 { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 700; margin-bottom: 4px; line-height: 1.2; }
+    h4 { font-size: 14px; color: #666; font-weight: 400; margin-bottom: 24px; border-bottom: 1px solid #f0f0ed; padding-bottom: 12px; }
+    h4.hidden { display: none; }
+    p { font-size: 14px; color: #333; line-height: 1.7; margin-bottom: 20px; font-weight: 300; }
+    .transit-box { background: #f8f8f6; padding: 18px; border-radius: 4px; border-left: 3px solid #111; margin-top: auto; }
+    .transit-box h5 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 6px; }
+    .transit-box p { font-size: 13px; color: #222; margin-bottom: 0; }
+
+    /* 圖標樣式 - 無數字 */
+    .node-landmark {
+      width: 14px; height: 14px;
+      background: #111;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 5px rgba(0,0,0,0.4);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .node-landmark:hover { background: #e63946; transform: scale(1.4); }
+
+    /* 旅館圖標：簡約床形 SVG 線條 */
+    .node-hotel {
+      width: 22px; height: 22px;
+      background: #e63946;
+      border: 2px solid #fff;
+      border-radius: 6px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.2s;
+    }
+    .node-hotel:hover { transform: scale(1.2); }
+    .node-hotel svg { width: 13px; height: 13px; }
+
+    .node-market {
+      width: 20px; height: 20px;
+      background: #2a9d8f;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 11px;
+      transition: transform 0.2s;
+    }
+    .node-market:hover { transform: scale(1.2); }
+
+    .node-transit {
+      width: 10px; height: 10px;
+      background: #777;
+      border: 1.5px solid #fff;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .node-transit:hover { background: #111; transform: scale(1.5); }
+
+    #day-selector {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3000;
+      display: flex;
+      gap: 6px;
+      background: rgba(255,255,255,0.96);
+      padding: 8px 12px;
+      border-radius: 30px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      border: 1px solid #e5e5e0;
+      max-width: 90vw;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #day-selector::-webkit-scrollbar { display: none; }
+    .day-btn {
+      padding: 8px 14px;
+      border-radius: 20px;
+      border: none;
+      background: transparent;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      color: #666;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .day-btn:hover { background: #f0f0ed; color: #111; }
+    .day-btn.active { background: #111; color: #fff; }
+    .day-btn.loaded:not(.active) { color: #111; }
+    .day-btn.unloaded { color: #c9c9c4; }
+    .day-btn.unloaded:hover { background: #f6f6f3; color: #999; }
+    .day-btn.loading { color: #111; position: relative; }
+    .day-btn.loading::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 3px; height: 2px; background: #111; opacity: 0.2; }
+
+    #controls-upper {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .action-btn {
+      background: rgba(255,255,255,0.95);
+      border: 1px solid #ccc;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: all 0.2s;
+    }
+    .action-btn:hover { background: #111; color: #fff; }
+    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #route-legend {
+      background: rgba(255,255,255,0.92);
+      padding: 10px 14px;
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      font-size: 11px;
+      color: #444;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .legend-row { display: flex; align-items: center; gap: 6px; }
+    .legend-line { width: 20px; height: 0; border-top: 2.5px solid #111; }
+    .legend-line.transit { border-top: 2px dashed #1d6fe0; }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin: 2px 0 18px;
+    }
+    .photo-slot {
+      position: relative;
+      aspect-ratio: 4 / 3;
+      border: 1px solid #e5e5e0;
+      background: #f6f6f3;
+      overflow: hidden;
+      border-radius: 3px;
+    }
+    .photo-slot::after {
+      content: attr(data-label);
+      position: absolute;
+      inset: auto 8px 7px auto;
+      font-size: 9px;
+      letter-spacing: 0.8px;
+      color: #aaa;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+    .photo-slot img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    /* 手繪感 Loading 進度條 */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.34);
+      backdrop-filter: blur(1px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 5000;
+      flex-direction: column;
+    }
+    #loading-overlay.active { display: flex; }
+    .loading-card {
+      width: min(430px, 72vw);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .loading-top {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      transform: rotate(-0.6deg);
+    }
+    .loading-bar {
+      height: 30px;
+      flex: 1;
+      border: 3px solid #111;
+      border-radius: 2px 5px 3px 2px;
+      padding: 3px;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 1px 0 0 #111, -1px 0 0 #111;
+      overflow: hidden;
+    }
+    .loading-fill {
+      width: 0%;
+      height: 100%;
+      background: repeating-linear-gradient(-55deg, #111 0, #111 4px, #fff 4px, #fff 7px);
+      transition: width 0.22s ease;
+    }
+    .loading-percent {
+      width: 54px;
+      font-family: 'Comic Sans MS', 'Segoe Print', cursive;
+      font-size: 22px;
+      line-height: 1;
+      transform: rotate(5deg);
+      color: #111;
+    }
+    .loading-label {
+      text-align: center;
+      font-family: 'Comic Sans MS', 'Segoe Print', cursive;
+      font-size: 25px;
+      letter-spacing: 1px;
+      transform: rotate(-1.2deg);
+      color: #111;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="map-container">
+    <div id="map"></div>
+    <div id="controls-upper">
+      <button class="action-btn" id="all-days-btn" onclick="renderAllDays()">🌐 顯示全行程路線</button>
+      <div id="route-legend">
+        <div class="legend-row"><span class="legend-line transit"></span> 步行路線</div>
+        <div class="legend-row"><span class="legend-line"></span> 搭車 / 鐵道</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="day-selector"></div>
+  <div id="split-panel">
+    <span class="close-btn" onclick="closePanel()">✕</span>
+    <div class="panel-content">
+      <span id="panel-city" class="tag">D1</span>
+      <h2 id="panel-title">地點名稱</h2>
+      <h4 id="panel-architect">建築師</h4>
+      <div id="panel-photos" class="photo-grid" aria-label="建築照片"></div>
+      <p id="panel-desc">詳細簡介...</p>
+      <div class="transit-box">
+        <h5>交通指引</h5>
+        <p id="panel-transit">說明...</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading-overlay">
+    <div class="loading-card">
+      <div class="loading-top">
+        <div class="loading-bar"><div class="loading-fill" id="loading-fill"></div></div>
+        <div class="loading-percent" id="loading-percent">0%</div>
+      </div>
+      <div class="loading-label" id="loading-text">D1</div>
+    </div>
+  </div>
+</div>
+<svg width="0" height="0" style="position: absolute;">
+  <defs>
+    <clipPath id="organic-blob-clip" clipPathUnits="objectBoundingBox">
+      <path transform="scale(0.0102, 0.0128)" d="M94.07,41.11c.17,.15,.15,.38,.15,.57,0,1.43-.39,2.75-1.01,4-.82,1.7-1.47,3.45-1.77,5.31-.17,1.09-.07,2.19-.06,3.3,.01,3.23-1.66,5.83-4.64,7.13-1.1,.48-2.21,.98-3.42,1.13-.68,.1-1.36,.1-2.03,.1-.96-.01-1.93,0-2.88,0-2.12,.01-4.23,.03-6.33-.52-1.43-.38-2.96-.48-4.37,.31-.95,.52-1.49,1.43-2.05,2.29-.21,.34-.38,.68-.57,1.03-.35,.6-.77,1.12-1.38,1.52-.77,.5-1.36,1.24-2.17,1.72-1.26,.75-2.61,1.09-4.04,1.17-.5,.03-.95-.2-1.36-.49-1.01-.78-2.1-1.34-3.41-1.33-1.55,.01-2.93,.48-4,1.68-1.06,1.16-2.11,2.33-3.37,3.31-1.44,1.1-3.05,1.96-4.76,2.43-1.86,.5-3.81,.48-5.66-.25-1.7-.66-3.16-1.75-4.64-2.78-.52-.36-1.05-.63-1.65-.78-.74-.21-1.49-.38-2.24-.6-2.57-.77-4.15-2.43-4.5-5.16-.11-.92-.27-1.84-.89-2.6-.17-.2-.32-.43-.56-.56-.95-.56-1.9-1.1-2.86-1.65-.36-.2-.78-.25-1.19-.24-1.03,0-2.05-.03-3.07,.03-.81,.04-1.34-.28-1.77-.92-.78-1.17-1.22-2.46-1.47-3.84-.38-2.01-.18-4.02-.25-6.02-.11-2.89,.92-5.46,2.25-7.94,.52-.96,1.05-1.93,1.72-2.81,.85-1.12,1.94-1.93,3.13-2.64,1.51-.91,2.89-2.01,4.11-3.3,.77-.82,1.36-1.8,1.97-2.75,.18-.29,.22-.61,.22-.96,0-.96,.01-1.94-.01-2.92,0-.64,.21-1.17,.73-1.55,.42-.32,.82-.64,1.24-.95,.66-.48,1.41-.32,2.15-.31,1.4,0,2.72,.35,4.05,.75,1.47,.45,2.58-.04,3.35-1.37,.18-.31,.35-.61,.5-.92,.53-1.09,1.44-1.58,2.63-1.55,.57,.01,1.16,.07,1.73,.14,.41,.04,.87-.13,1.3-.14,2.33-.08,4.54-.7,6.59-1.79,.89-.48,1.62-1.24,2.6-1.61,1.05-.39,1.96-1.1,3.05-1.38,1.7-.42,3.34-.11,4.89,.7,1.16,.61,2.29,1.27,3.26,2.17,.88,.81,1.87,1.19,3.02,1.38,2.18,.38,4.39,.54,6.61,.67,1.55,.08,3.1,.25,4.6,.77,1.49,.5,2.65,2.11,2.68,3.7,.01,1.01,.01,2.01,.03,3.02,.01,1.02,.43,1.87,1.2,2.47,.57,.43,.68,.96,.56,1.56-.27,1.37-.21,2.77-.24,4.15-.01,.95,.32,1.58,1.15,2.12,.92,.61,1.82,.85,2.88,.81,1.19-.04,2.36-.01,3.55-.01h0c1.4-.01,2.79,.01,4.21-.01,1.06-.03,1.8,.54,2.51,1.2Z"/>
+    </clipPath>
+  </defs>
+</svg>
+<script>
+  const switzerlandBounds = L.latLngBounds(
+    L.latLng(45.75, 5.85),
+    L.latLng(47.88, 10.65)
+  );
+
+  const map = L.map('map', {
+    zoomControl: false,
+    maxBounds: switzerlandBounds,
+    maxBoundsViscosity: 1.0,
+    minZoom: 7,
+    maxZoom: 18
+  });
+
+  map.fitBounds(switzerlandBounds);
+  const tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+  tileLayer.getContainer().style.filter = 'grayscale(100%) contrast(85%) brightness(108%)';
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  // 點空白處 → 顯示全行程路線（marker 點擊已經 stopPropagation，所以這裡不用再判斷 target）
+  map.on('click', () => {
+    if (!isRendering) renderAllDays();
+  });
+
+  const itinerary = {
+    day1: {
+      label: "5/22",
+      city: "Zürich",
+      stops: [
+        { type: "transit", name: "Flughafen Zürich", coords: [47.450178629636774, 8.561714721161664], desc: "機場入境。", mode: "transit" },
+        { type: "landmark", name: "Schule Leutschenbach", architect: "Christian Kerez", coords: [47.413211, 8.562844], desc: "打破傳統校園佈局，將體育館高懸於頂層，打造全懸臂結構鋼架空間。", transit: "SBB 至 Zürich HB，轉乘市區交通前往。", mode: "walk" },
+        { type: "market", name: "Coop Supermarkt Zürich Precisa", coords: [47.41132944994993, 8.562601306494736], desc: "補給採買超市。", mode: "transit" },
+        { type: "hotel", name: "MEININGER Hotel Zürich Greencity", coords: [47.34148120727083, 8.520164699420933], desc: "住宿點。" }
+      ]
+    },
+    day2: {
+      label: "5/23",
+      city: "St. Gallen",
+      stops: [
+        { type: "hotel", name: "MEININGER Hotel Zürich Greencity", coords: [47.34148120727083, 8.520164699420933], desc: "出發點。", mode: "transit" },
+        { type: "transit", name: "St. Gallen", coords: [47.42317388256594, 9.369439860999256], desc: "聖加侖車站點。", mode: "walk" },
+        { type: "landmark", name: "St Gallen Cathedral Chancel", architect: "Caruso St John Architects", coords: [47.423331, 9.377222], desc: "對歷史大教堂主祭壇進行當代重構，將古典神聖感與當代細部雕琢結合。", transit: "SBB 幹線列車至 St. Gallen 站，步行前往。", mode: "walk" },
+        { type: "landmark", name: "Abbey Library of Saint Gall", coords: [47.42279022471844, 9.37698943380503], desc: "聖加侖修道院圖書館。", mode: "walk" },
+        { type: "landmark", name: "Textilmuseum St. Gallen", coords: [47.423536248080836, 9.373589305800307], desc: "聖加侖紡織博物館。", mode: "walk" },
+        { type: "market", name: "Coop Supermarkt St. Gallen Neugasse", coords: [47.42437633050108, 9.374367393601364], desc: "超市補給。", mode: "walk" },
+        { type: "transit", name: "St. Gallen 站", coords: [47.42317388256594, 9.369439860999256], desc: "返回車站搭車。", mode: "transit" },
+        { type: "hotel", name: "Schaan-Vaduz Youth Hostel", coords: [47.1591492869708, 9.506210995593841], desc: "住宿地點。" }
+      ]
+    },
+    day3: {
+      label: "5/24",
+      city: "Vaduz & Landquart",
+      stops: [
+        { type: "hotel", name: "Schaan-Vaduz Youth Hostel", coords: [47.1591492869708, 9.506210995593841], desc: "出發點。", mode: "walk" },
+        { type: "landmark", name: "Alte Rheinbrücke", architect: "-", coords: [47.132497, 9.511950], desc: "跨越萊茵河、連接瑞士與列支敦斯登的百年歷史包覆式木橋。", mode: "transit" },
+        { type: "transit", name: "Steg", coords: [47.11095288124676, 9.57388931093224], desc: "山區站點。", mode: "transit" },
+        { type: "landmark", name: "Liechtensteinisches PostMuseum", coords: [47.13909155390275, 9.522667896253497], desc: "列支敦斯登郵票博物館。", mode: "transit" },
+        { type: "hotel", name: "Hotel Hirschen", coords: [47.00464655801888, 9.529033888794924], desc: "住宿點。" },
+        { type: "landmark", name: "Plantahof Auditorium", architect: "Valerio Olgiati", coords: [46.96286892914034, 9.56296849681043], desc: "極具標誌性的單體混凝土柱與暗紅結構禮堂。", mode: "walk" },
+        { type: "market", name: "Migros-Supermarkt - Landquart", coords: [46.96792877569997, 9.561749179656417], desc: "補給超市。", mode: "transit" },
+        { type: "hotel", name: "Hotel Hirschen", coords: [47.00464655801888, 9.529033888794924], desc: "住宿點。" }
+      ]
+    },
+    day4: {
+      label: "5/25",
+      city: "Chur & Haldenstein",
+      stops: [
+        { type: "hotel", name: "Hotel Hirschen", coords: [47.00464655801888, 9.529033888794924], desc: "出發點。", mode: "transit" },
+        { type: "transit", name: "Chur", coords: [46.85333215622394, 9.5298295806851], desc: "火車站。", mode: "walk" },
+        { type: "landmark", name: "Parliament's entrance Canton Grisons", architect: "Valerio Olgiati", coords: [46.851725060504464, 9.533959955813463], desc: "格勞賓登州議會入口。", mode: "walk" },
+        { type: "transit", name: "Giger Brunnen", coords: [46.85057719580304, 9.532999137058605], desc: "噴泉景點。", mode: "walk" },
+        { type: "transit", name: "Killias Chur GmbH", coords: [46.84892241257749, 9.532789480065775], desc: "途經點。", mode: "walk" },
+        { type: "transit", name: "Nana Mine", coords: [46.849430967326114, 9.53298559958418], desc: "途經點。", mode: "walk" },
+        { type: "landmark", name: "Reformierte Martinskirche", coords: [46.84816794080674, 9.532563487454132], desc: "馬丁教堂。", mode: "walk" },
+        { type: "landmark", name: "Shelter for Roman Excavations", architect: "Peter Zumthor", coords: [46.846751516665954, 9.526761072039099], desc: "以黑木百葉構造包覆古羅馬遺跡。", mode: "walk" },
+        { type: "market", name: "ALDI SUISSE", coords: [46.846874399836736, 9.521871152554093], desc: "超市補給。", mode: "transit" },
+        { type: "landmark", name: "CADONAU - Haus zur Linde", architect: "Peter Zumthor", coords: [46.8720160427527, 9.537540464609407], desc: "早期作品之一，展現對地方木構傳統與當代語彙的融合。", mode: "walk" },
+        { type: "market", name: "migrolino Chur Deutsche-Strasse", coords: [46.872951921371325, 9.534423124398636], desc: "便利商店。", mode: "transit" },
+        { type: "landmark", name: "New Studio Zumthor", architect: "Peter Zumthor", coords: [46.880318801407185, 9.526541430613165], desc: "Zumthor 自宅事務所。", mode: "transit" },
+        { type: "hotel", name: "Bogentrakt", coords: [46.8492072536824, 9.534851345790969], desc: "住宿地點。" }
+      ]
+    },
+    day5: {
+      label: "5/26",
+      city: "Cazis, Scharans & St.Moritz",
+      stops: [
+        { type: "hotel", name: "Bogentrakt", coords: [46.8492072536824, 9.534851345790969], desc: "出發點。", mode: "walk" },
+        { type: "transit", name: "Chur", coords: [46.85333215622394, 9.5298295806851], desc: "火車站。", mode: "transit" },
+        { type: "landmark", name: "Kapelle St. Nepomuk", architect: "Rudolf Fontana, Christian Kerez", coords: [46.75239681344325, 9.422660104183631], desc: "小型鄉間禮拜堂。", mode: "transit" },
+        { type: "landmark", name: "Atelier Bardill", architect: "Valerio Olgiati", coords: [46.71662316745318, 9.459835961995326], desc: "紅色混凝土量體嵌入山坡地景。", mode: "transit" },
+        { type: "transit", name: "St.Moritz", coords: [46.498088396406914, 9.845924968504729], desc: "聖莫里茨。", mode: "walk" },
+        { type: "market", name: "migrolino St. Moritz", coords: [46.498177176113344, 9.84573530765298], desc: "補給便利商店。", mode: "transit" },
+        { type: "hotel", name: "Jugendherberge St. Moritz", coords: [46.48966516096478, 9.846167137851229], desc: "住宿地點。" }
+      ]
+    },
+    day6: {
+      label: "5/27",
+      city: "St.Moritz, Samedan & Zernez",
+      stops: [
+        { type: "hotel", name: "Jugendherberge St. Moritz", coords: [46.48966516096478, 9.846167137851229], desc: "出發點。", mode: "walk" },
+        { type: "transit", name: "St.Moritz 散步點 1", coords: [46.49109516354185, 9.849181006601322], desc: "步行經過。", mode: "walk" },
+        { type: "transit", name: "St.Moritz 散步點 2", coords: [46.494857891253716, 9.856590196046955], desc: "步行經過。", mode: "walk" },
+        { type: "transit", name: "St.Moritz 散步點 3", coords: [46.49680911448215, 9.847663171952245], desc: "步行經過。", mode: "transit" },
+        { type: "transit", name: "Samedan", coords: [46.533907097453046, 9.873124477064513], desc: "Samedan 車站。", mode: "walk" },
+        { type: "landmark", name: "Center dal Parc Naziunal", architect: "Valerio Olgiati", coords: [46.69928984963206, 10.095421572302488], desc: "國家公園遊客中心。", mode: "transit" },
+        { type: "landmark", name: "Schulhaus Paspels", architect: "Valerio Olgiati", coords: [46.74964920898847, 9.447792270311234], desc: "山區中學校舍。", mode: "transit" },
+        { type: "market", name: "Coop Pronto Shop Chur Bahnhof", coords: [46.85367876236524, 9.529679200300944], desc: "車站超市。", mode: "walk" },
+        { type: "hotel", name: "VIVA Hostel", coords: [46.8480295685856, 9.527556396700037], desc: "住宿地點。" }
+      ]
+    },
+    day7: {
+      label: "5/28",
+      city: "Vals & Sumvitg",
+      stops: [
+        { type: "hotel", name: "VIVA Hostel", coords: [46.8480295685856, 9.527556396700037], desc: "出發點。", mode: "transit" },
+        { type: "landmark", name: "Therme Vals", architect: "Peter Zumthor", coords: [46.62185413233925, 9.181188977702005], desc: "瓦爾斯溫泉浴場，片麻岩層疊構成的感官聖殿。", mode: "transit" },
+        { type: "transit", name: "Sumvitg-Cumpadials", coords: [46.72411107710903, 8.931019665038752], desc: "車站點。", mode: "walk" },
+        { type: "landmark", name: "Saint Benedict Chapel", architect: "Peter Zumthor", coords: [46.734851195452784, 8.939013666593157], desc: "聖本篤教堂，淚滴形木構小教堂。", mode: "walk" },
+        { type: "market", name: "Coop Supermarkt Disentis", coords: [46.70016466322225, 8.842021853110905], desc: "超市補給。", mode: "walk" },
+        { type: "hotel", name: "Catrina Experience", coords: [46.699992221007086, 8.840842477672222], desc: "住宿地點。" }
+      ]
+    },
+    day8: {
+      label: "5/29",
+      city: "Giornico & Visp",
+      stops: [
+        { type: "hotel", name: "Catrina Experience", coords: [46.699992221007086, 8.840842477672222], desc: "出發點。", mode: "transit" },
+        { type: "landmark", name: "Museo La Congiunta", architect: "Peter Märkli", coords: [46.4055292822474, 8.870505110027798], desc: "野性清水混凝土雕塑展館，無空調與照明。", mode: "walk" },
+        { type: "transit", name: "Osteria Giornico da Mary e Amos", coords: [46.40229872821776, 8.876365409132076], desc: "餐廳途經點。", mode: "transit" },
+        { type: "market", name: "Migros-Supermarkt - Visp", coords: [46.29327986696873, 7.879673572158836], desc: "超市補給。", mode: "transit" },
+        { type: "hotel", name: "Zimmervermietung Ackersand", coords: [46.249997769401, 7.8742409123376165], desc: "住宿地點。" }
+      ]
+    },
+    day9: {
+      label: "5/30",
+      city: "Zermatt",
+      stops: [
+        { type: "hotel", name: "Zimmervermietung Ackersand", coords: [46.249997769401, 7.8742409123376165], desc: "出發點。", mode: "transit" },
+        { type: "transit", name: "Zermatt", coords: [46.02400034198858, 7.747848507108583], desc: "火車站。", mode: "walk" },
+        { type: "transit", name: "Zermatt", coords: [46.022367122969214, 7.752392013923178], desc: "纜車站。", mode: "walk" },
+        { type: "landmark", name: "Sunnegga", coords: [46.01709427156616, 7.7704043938043315], desc: "策馬特蘇內加觀景台。", mode: "walk" },
+        { type: "landmark", name: "Blauherd", coords: [46.01681903973439, 7.785964588469647], desc: "藍湖步道起點。", mode: "walk" },
+        { type: "landmark", name: "Sunnegga", coords: [46.01709427156616, 7.7704043938043315], desc: "策馬特蘇內加觀景台。", mode: "walk" },
+        { type: "transit", name: "Zermatt", coords: [46.022367122969214, 7.752392013923178], desc: "纜車站。", mode: "walk" },
+        { type: "landmark", name: "Pfarrkirche St. Mauritius", coords: [46.01961335203878, 7.746307646118254], desc: "聖毛里求斯教堂。", mode: "walk" },
+        { type: "landmark", name: "Matterhorn Museum - Zermatlantis", coords: [46.01978315833292, 7.7464281736460725], desc: "馬特洪峰博物館。", mode: "walk" },
+        { type: "market", name: "Migros-Supermarkt - Zermatt", coords: [46.021835434527624, 7.7483074944955055], desc: "超市補給。", mode: "walk" },
+        { type: "transit", name: "Zermatt", coords: [46.02400034198858, 7.747848507108583], desc: "火車站。", mode: "transit" },
+        { type: "hotel", name: "gîte - dortoir La cigale", coords: [46.13887809063054, 7.153210042826895], desc: "住宿地點。", mode: "transit"}
+      ]
+    },
+    day10: {
+      label: "5/31",
+      city: "Martigny & Lausanne",
+      stops: [
+        { type: "hotel", name: "gîte - dortoir La cigale", coords: [46.13887809063054, 7.153210042826895], desc: "出發點。", mode: "transit" },
+        { type: "landmark", name: "Château de Chillon", coords: [46.414236249270424, 6.927484113095731], desc: "西庸城堡。", mode: "transit" },
+        { type: "landmark", name: "Musée Olympique", coords: [46.50904927384913, 6.633985414496684], desc: "奧林匹克博物館。", mode: "walk" },
+        { type: "market", name: "Supermarché Migros Partenaire", coords: [46.508001066398165, 6.624875646232947], desc: "超市補給。", mode: "walk" },
+        { type: "landmark", name: "Cathédrale de Lausanne", coords: [46.5233853071235, 6.634936329325629], desc: "洛聖大教堂。", mode: "transit" },
+        { type: "hotel", name: "Auberge de Jeunesse de Lausanne", coords: [46.51971364991029, 6.597269633489662], desc: "洛桑青年旅館住宿。" }
+      ]
+    },
+    day11: {
+      label: "6/1",
+      city: "Bern & Grindelwald",
+      stops: [
+        { type: "hotel", name: "Auberge de Jeunesse de Lausanne", coords: [46.51971364991029, 6.597269633489662], desc: "出發點。", mode: "transit" },
+        { type: "landmark", name: "Berner Münster", coords: [46.94757645243475, 7.452324671294305], desc: "伯恩大教堂。", mode: "walk" },
+        { type: "landmark", name: "Rosengarten Bern", coords: [46.951635779940304, 7.46005752151805], desc: "玫瑰花園俯瞰伯恩舊城區。", mode: "walk" },
+        { type: "market", name: "Migros-Supermarkt - Bern - Marktgasse", coords: [46.94842849998508, 7.44490307342105], desc: "伯恩超市補給。", mode: "transit" },
+        { type: "hotel", name: "Naturfreundehaus Grindelwald", coords: [46.62872130275805, 8.033178181499846], desc: "格林德瓦住宿點。" }
+      ]
+    },
+    day12: {
+      label: "6/2",
+      city: "Lauterbrunnen & Grindelwald",
+      stops: [
+        { type: "hotel", name: "Naturfreundehaus Grindelwald", coords: [46.62872130275805, 8.033178181499846], desc: "出發點。", mode: "transit" },
+        { type: "landmark", name: "Lauterbrunnen", coords: [46.598476211416646, 7.9081096762137735], desc: "勞特布龍嫩瀑布鎮。", mode: "walk" },
+        { type: "market", name: "Coop Supermarkt Lauterbrunnen", coords: [46.598779555291216, 7.907439481531006], desc: "超市補給。", mode: "transit" },
+        { type: "hotel", name: "Naturfreundehaus Grindelwald", coords: [46.62872130275805, 8.033178181499846], desc: "格林德瓦住宿點。" }
+      ]
+    },
+    day13: {
+      label: "6/3",
+      city: "Cham & Basel",
+      stops: [
+        { type: "hotel", name: "Naturfreundehaus Grindelwald", coords: [46.62872130275805, 8.033178181499846], desc: "出發點。", mode: "transit" },
+        { type: "landmark", name: "Kiln Tower for the Brickworks Museum", architect: "Boltshauser Architekten", coords: [47.19612784998965, 8.424894130811612], desc: "磚窯博物館的窯塔改造。", mode: "transit" },
+        { type: "landmark", name: "Museum Tinguely", architect: "Mario Botta", coords: [47.55911216802712, 7.612154575198346], desc: "以幾何量體與紅磚立面呼應萊茵河畔。", mode: "walk" },
+        { type: "market", name: "Migros-Supermarkt - Basel - Juniors Market", coords: [47.5580, 7.6050], desc: "巴塞爾超市補給。", mode: "walk" },
+        { type: "hotel", name: "SILO soulfood hostel meetings", architect: "Harry Gugger Studio", coords: [47.57213679864628, 7.602186071556932], desc: "由穀倉改建而成的青年旅館。" }
+      ]
+    },
+    day14: {
+      label: "6/4",
+      city: "Basel Architecture",
+      stops: [
+        { type: "hotel", name: "SILO soulfood hostel meetings", architect: "Harry Gugger Studio", coords: [47.57213679864628, 7.602186071556932], desc: "出發地點。", mode: "transit" },
+        { type: "landmark", name: "Schaulager, Laurenz-Stiftung", architect: "Herzog & de Meuron", coords: [47.5282227739266, 7.610761227104449], desc: "結合藝術品典藏庫與展場。", mode: "transit" },
+        { type: "landmark", name: "Baloise Park C", architect: "Valerio Olgiati", coords: [47.548950070906514, 7.592822516435286], desc: "簡練的立面語彙展現企業建築姿態。", mode: "walk" },
+        { type: "landmark", name: "Museum der Kulturen Basel", coords: [47.55738047474775, 7.590889343942285], desc: "巴塞爾文化博物館。", mode: "transit" },
+        { type: "landmark", name: "Conversion of a Wine Storage into Housing", architect: "Esch Sintzel", coords: [47.57302617952857, 7.574918921166817], desc: "舊酒窖改造集合住宅。", mode: "transit" },
+        { type: "hotel", name: "SILO soulfood hostel meetings", architect: "Harry Gugger Studio", coords: [47.57213679864628, 7.602186071556932], desc: "住宿點。" }
+      ]
+    },
+    day15: {
+      label: "6/5",
+      city: "Vitra Campus",
+      stops: [
+        { type: "hotel", name: "SILO soulfood hostel meetings", architect: "Harry Gugger Studio", coords: [47.57213679864628, 7.602186071556932], desc: "出發地點。", mode: "transit" },
+        { type: "landmark", name: "Tane garden house", architect: "Tsuyoshi Tane", coords: [47.60209606610659, 7.6168734998087695], desc: "Vitra 園區內的花園小屋。", mode: "transit" },
+        { type: "market", name: "Markthalle Basel", coords: [47.54936159541051, 7.587153940901094], desc: "巴塞爾室內市場補給。", mode: "walk" },
+        { type: "hotel", name: "SILO soulfood hostel meetings", architect: "Harry Gugger Studio", coords: [47.57213679864628, 7.602186071556932], desc: "住宿地點。" }
+      ]
+    },
+    day16: {
+      label: "6/6",
+      city: "Glarus & Zurich",
+      stops: [
+        { type: "hotel", name: "SILO soulfood hostel meetings", coords: [47.57213679864628, 7.602186071556932], desc: "出發地點。", mode: "transit" },
+        { type: "landmark", name: "Reformierte Kirche Ennenda", coords: [47.03380209585581, 9.079156207816675], desc: "Ennenda 教堂。", mode: "transit" },
+        { type: "landmark", name: "Never Stop Reading", coords: [47.372033403909, 8.545340834491753], desc: "蘇黎世獨立建築書店。", mode: "walk" },
+        { type: "market", name: "Läderach", coords: [47.37701123902603, 8.539869848116869], desc: "巧克力紀念品採買。", mode: "transit" },
+        { type: "transit", name: "Flughafen Zürich", coords: [47.450178629636774, 8.561714721161664], desc: "機場返航。" }
+      ]
+    }
+  };
+
+  // ===== 路線與天數狀態 =====
+  let activeDayKey = null;
+  let isRendering = false;
+  let allDaysMode = false;
+
+  // 每一天獨立的 Leaflet layer；載入後保留，不需要重跑
+  const dayLayers = new Map();
+  // routeCache：只快取成功的路線幾何資料
+  const routeCache = new Map();
+  const loadedDays = new Set();
+  const loadingDays = new Set();
+
+  const HOTEL_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 18v-6a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v6"/>
+    <path d="M3 20v-2"/>
+    <path d="M21 20v-2"/>
+    <path d="M3 18h18"/>
+    <path d="M21 18v-5a2 2 0 0 0-2-2h-4"/>
+    <circle cx="7.5" cy="10" r="1.4"/>
+  </svg>`;
+
+  function iconForType(type) {
+    let cls = 'node-landmark';
+    let content = '';
+    if (type === 'hotel') { cls = 'node-hotel'; content = HOTEL_SVG; }
+    else if (type === 'market') { cls = 'node-market'; content = '🛒'; }
+    else if (type === 'transit') { cls = 'node-transit'; }
+    const size = type === 'hotel' ? 22 : (type === 'market' ? 20 : (type === 'landmark' ? 14 : 10));
+    return L.divIcon({ className: '', html: `<div class="${cls}">${content}</div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+  }
+
+  function dayNumber(dayKey) { return dayKey.replace('day', ''); }
+  function buttonFor(dayKey) { return document.querySelector(`.day-btn[data-day="${dayKey}"]`); }
+
+  function setButtonState(dayKey, state) {
+    const btn = buttonFor(dayKey);
+    if (!btn) return;
+    btn.classList.remove('active', 'loaded', 'unloaded', 'loading');
+    if (state === 'active') btn.classList.add('active');
+    else if (state === 'loaded') btn.classList.add('loaded');
+    else if (state === 'loading') btn.classList.add('loading');
+    else btn.classList.add('unloaded');
+  }
+
+  function refreshDayButtons() {
+    Object.keys(itinerary).forEach(dayKey => {
+      if (dayKey === activeDayKey && !allDaysMode) setButtonState(dayKey, 'active');
+      else if (loadedDays.has(dayKey)) setButtonState(dayKey, 'loaded');
+      else if (loadingDays.has(dayKey)) setButtonState(dayKey, 'loading');
+      else setButtonState(dayKey, 'unloaded');
+    });
+    const allReady = Object.keys(itinerary).every(k => loadedDays.has(k));
+    document.getElementById('all-days-btn').disabled = !allReady || isRendering;
+  }
+
+  function showLoading(dayKey, progress = 0) {
+    document.getElementById('loading-text').innerText = dayKey ? `D${dayNumber(dayKey)}` : '';
+    setLoadingProgress(progress);
+    document.getElementById('loading-overlay').classList.add('active');
+  }
+
+  function setLoadingProgress(progress) {
+    const value = Math.max(0, Math.min(100, Math.round(progress)));
+    document.getElementById('loading-fill').style.width = `${value}%`;
+    document.getElementById('loading-percent').innerText = `${value}%`;
+  }
+
+  function hideLoading() { document.getElementById('loading-overlay').classList.remove('active'); }
+
+  function cacheKeyFor(coordsList, profile) {
+    return profile + '|' + coordsList.map(c => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).join(';');
+  }
+
+  async function fetchRoute(coordsList, profile) {
+    const cacheKey = cacheKeyFor(coordsList, profile);
+    if (routeCache.has(cacheKey)) return routeCache.get(cacheKey);
+
+    const modePath = profile === 'foot' ? 'foot' : 'driving';
+    const coordStr = coordsList.map(([lat, lon]) => `${lon},${lat}`).join(';');
+
+    // 先用原本的 routing.openstreetmap.de；失敗再用 OSRM。
+    const urls = [
+      `https://routing.openstreetmap.de/${profile === 'foot' ? 'routed-foot' : 'routed-car'}/route/v1/${modePath}/${coordStr}?overview=full&geometries=geojson&alternatives=false`,
+      `https://router.project-osrm.org/route/v1/${modePath}/${coordStr}?overview=full&geometries=geojson&alternatives=false`
+    ];
+
+    for (const url of urls) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`Routing HTTP ${response.status}`);
+        const data = await response.json();
+        const geometry = data?.routes?.[0]?.geometry?.coordinates;
+        if (!geometry?.length) throw new Error('No route geometry returned');
+
+        const result = geometry.map(([lon, lat]) => [lat, lon]);
+        routeCache.set(cacheKey, result);
+        return result;
+      } catch (error) {
+        console.warn('Routing service failed:', url, error);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    return null;
+  }
+
+  function buildMarkersForDay(dayKey, layerGroup) {
+    itinerary[dayKey].stops.forEach(stop => {
+      if (stop.type === 'waypoint') return;
+      const marker = L.marker(stop.coords, { icon: iconForType(stop.type) });
+      marker.on('click', e => {
+        L.DomEvent.stopPropagation(e);
+        openPanel(stop, dayKey);
+      });
+      marker.addTo(layerGroup);
+    });
+  }
+
+  async function buildDayLayer(dayKey, showProgress = false) {
+    if (dayLayers.has(dayKey)) return dayLayers.get(dayKey);
+    const day = itinerary[dayKey];
+    if (!day || !day.stops || day.stops.length < 2) throw new Error(`Invalid itinerary: ${dayKey}`);
+
+    const layer = L.layerGroup();
+    buildMarkersForDay(dayKey, layer);
+
+    const realStops = day.stops.filter(s => s.type !== 'waypoint');
+    const totalSegments = Math.max(1, realStops.length - 1);
+    let doneSegments = 0;
+    let i = 0;
+
+    while (i < day.stops.length - 1) {
+      const startStop = day.stops[i];
+      let j = i + 1;
+      const viaCoords = [];
+      while (j < day.stops.length && day.stops[j].type === 'waypoint') {
+        viaCoords.push(day.stops[j].coords);
+        j++;
+      }
+      if (j >= day.stops.length) break;
+      const endStop = day.stops[j];
+      const isWalk = (startStop.mode || 'drive') === 'walk';
+      const profile = isWalk ? 'foot' : 'car';
+      let route = await fetchRoute([startStop.coords, ...viaCoords, endStop.coords], profile);
+
+      // D14 特定缺口：若線上 routing 暫時失敗，直接把兩個既有座標接起來，
+      // 不改動任何 D14 行程資料，也不影響其他日期。
+      const isD14WineGap =
+        dayKey === 'day14' &&
+        startStop.name === 'Museum der Kulturen Basel' &&
+        endStop.name === 'Conversion of a Wine Storage into Housing';
+
+      if ((!route || route.length < 2) && isD14WineGap) {
+        route = [startStop.coords, endStop.coords];
+      }
+
+      if (route && route.length >= 2) {
+        L.polyline(route, {
+          color: isWalk ? '#1d6fe0' : '#111111',
+          weight: 3,
+          opacity: 0.85,
+          dashArray: isWalk ? '8,7' : null,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(layer);
+      }
+      doneSegments++;
+      if (showProgress) setLoadingProgress((doneSegments / totalSegments) * 100);
+      i = j;
+      if (i < day.stops.length - 1) await new Promise(r => setTimeout(r, 220));
+    }
+
+    dayLayers.set(dayKey, layer);
+    loadedDays.add(dayKey);
+    refreshDayButtons();
+    return layer;
+  }
+
+  function hideAllDayLayers() {
+    dayLayers.forEach(layer => {
+      if (map.hasLayer(layer)) map.removeLayer(layer);
+    });
+  }
+
+  function showOnlyDay(dayKey) {
+    hideAllDayLayers();
+    const layer = dayLayers.get(dayKey);
+    if (layer) layer.addTo(map);
+    allDaysMode = false;
+    activeDayKey = dayKey;
+    refreshDayButtons();
+  }
+
+  function getBoundsForLayer(layer) {
+    const bounds = layer?.getBounds?.();
+    return bounds && bounds.isValid() ? bounds : null;
+  }
+
+  async function selectDay(dayKey) {
+    if (isRendering) return;
+    closePanel(false);
+
+    // 已載入：只切換 layer，不重新 request
+    if (loadedDays.has(dayKey)) {
+      showOnlyDay(dayKey);
+      const layer = dayLayers.get(dayKey);
+      const bounds = getBoundsForLayer(layer);
+      if (bounds) {
+        map.invalidateSize({ pan: false });
+        map.flyToBounds(bounds, {
+          padding: [80, 80],
+          maxZoom: 13,
+          duration: 1.0
+        });
+      }
+      return;
+    }
+
+    isRendering = true;
+    loadingDays.add(dayKey);
+    refreshDayButtons();
+    hideAllDayLayers();
+    activeDayKey = dayKey;
+    showLoading(dayKey, 0);
+
+    try {
+      const layer = await buildDayLayer(dayKey, true);
+      showOnlyDay(dayKey);
+      const bounds = getBoundsForLayer(layer);
+      if (bounds) {
+        map.invalidateSize({ pan: false });
+        map.flyToBounds(bounds, {
+          padding: [80, 80],
+          maxZoom: 13,
+          duration: 1.0
+        });
+      }
+      setLoadingProgress(100);
+      await new Promise(r => setTimeout(r, 160));
+    } catch (error) {
+      console.error(`Failed to load ${dayKey}:`, error);
+      loadedDays.delete(dayKey);
+      dayLayers.delete(dayKey);
+      // 失敗時回到目前上一個已載入天數；若沒有則回 D1
+      const fallback = activeDayKey && loadedDays.has(activeDayKey) ? activeDayKey : 'day1';
+      if (dayLayers.has(fallback)) showOnlyDay(fallback);
+      alert(`D${dayNumber(dayKey)} 路線載入失敗，請稍後再試。`);
+    } finally {
+      loadingDays.delete(dayKey);
+      isRendering = false;
+      hideLoading();
+      refreshDayButtons();
+    }
+  }
+
+  function renderAllDays() {
+    const allReady = Object.keys(itinerary).every(k => loadedDays.has(k));
+    if (!allReady || isRendering) return;
+    closePanel(false);
+    hideAllDayLayers();
+    dayLayers.forEach(layer => layer.addTo(map));
+    allDaysMode = true;
+    activeDayKey = null;
+    refreshDayButtons();
+
+    let combined = null;
+    dayLayers.forEach(layer => {
+      const b = getBoundsForLayer(layer);
+      if (b) combined = combined ? combined.extend(b) : b;
+    });
+    if (combined?.isValid()) {
+      map.invalidateSize({ pan: false });
+      map.fitBounds(combined, {
+        padding: [55, 55],
+        maxZoom: 10
+      });
+    }
+  }
+
+  function buildDaySelector() {
+    const container = document.getElementById('day-selector');
+    container.innerHTML = '';
+    Object.keys(itinerary).forEach(key => {
+      const btn = document.createElement('button');
+      btn.className = 'day-btn';
+      btn.dataset.day = key;
+      btn.innerText = 'D' + dayNumber(key);
+      btn.onclick = e => {
+        e.stopPropagation();
+        selectDay(key);
+      };
+      container.appendChild(btn);
+    });
+    refreshDayButtons();
+  }
+
+  function renderPhotos(stop) {
+    const box = document.getElementById('panel-photos');
+    box.innerHTML = '';
+    if (stop.type !== 'landmark' || !stop.name) {
+      box.style.display = 'none';
+      return;
+    }
+    box.style.display = 'grid';
+    for (let i = 1; i <= 4; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'photo-slot';
+      slot.dataset.label = String(i).padStart(2, '0');
+      const img = document.createElement('img');
+      img.alt = `${stop.name} ${String(i).padStart(2, '0')}`;
+      img.src = `images/${encodeURIComponent(stop.name)}_${String(i).padStart(2, '0')}.jpg`;
+      img.onerror = () => {
+        img.style.display = 'none';
+      };
+      slot.appendChild(img);
+      box.appendChild(slot);
+    }
+  }
+
+  function openPanel(stop, dayKey) {
+    map.flyTo(stop.coords, 15, { duration: 0.8 });
+    document.getElementById('map-container').style.width = '55%';
+    document.getElementById('split-panel').style.display = 'block';
+    const shortDay = 'D' + dayNumber(dayKey);
+    document.getElementById('panel-city').innerText = `${itinerary[dayKey].city} • ${itinerary[dayKey].label} · ${shortDay}`;
+    document.getElementById('panel-title').innerText = stop.name;
+    const archEl = document.getElementById('panel-architect');
+    if (stop.architect) {
+      archEl.innerText = `Architect: ${stop.architect}`;
+      archEl.classList.remove('hidden');
+    } else archEl.classList.add('hidden');
+    renderPhotos(stop);
+    document.getElementById('panel-desc').innerText = stop.desc || '暫無說明';
+    document.getElementById('panel-transit').innerHTML = stop.transit || '步行或搭乘當地公共交通。';
+    setTimeout(() => map.invalidateSize(), 300);
+  }
+
+  function closePanel(keepBounds = true) {
+    document.getElementById('map-container').style.width = '100%';
+    document.getElementById('split-panel').style.display = 'none';
+    if (keepBounds && activeDayKey && dayLayers.has(activeDayKey) && !allDaysMode) {
+      const bounds = getBoundsForLayer(dayLayers.get(activeDayKey));
+      if (bounds) map.flyToBounds(bounds, { padding: [50, 50], duration: 0.8 });
+    }
+    setTimeout(() => map.invalidateSize(), 300);
+  }
+
+  // 空白地圖點擊 → 顯示全部已載入天數。
+  // marker click 已 stopPropagation，所以點 marker 不會觸發這裡。
+  map.off('click');
+  map.on('click', () => {
+    if (!isRendering) {
+      closePanel(false);
+      renderAllDays();
+    }
+  });
+
+  buildDaySelector();
+  // 啟動時只載入 D1；其他天數完全不背景請求
+  (async function init() {
+    isRendering = true;
+    loadingDays.add('day1');
+    refreshDayButtons();
+    showLoading('day1', 0);
+    try {
+      const layer = await buildDayLayer('day1', true);
+      dayLayers.forEach((value, key) => { if (key !== 'day1' && map.hasLayer(value)) map.removeLayer(value); });
+      layer.addTo(map);
+      activeDayKey = 'day1';
+      allDaysMode = false;
+      const bounds = getBoundsForLayer(layer);
+      if (bounds) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13 });
+      setLoadingProgress(100);
+      await new Promise(r => setTimeout(r, 160));
+    } catch (error) {
+      console.error('Initial D1 load failed:', error);
+    } finally {
+      loadingDays.delete('day1');
+      isRendering = false;
+      hideLoading();
+      refreshDayButtons();
+    }
+  })();
+</script>
+</body>
+</html>
