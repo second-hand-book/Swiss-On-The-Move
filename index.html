@@ -255,11 +255,30 @@
     }
     #loading-overlay.active { display: flex; }
     .loading-card {
-      width: min(430px, 72vw);
+      width: min(720px, 92vw);
       display: flex;
       flex-direction: column;
       align-items: stretch;
-      gap: 10px;
+      gap: 18px;
+    }
+    .loading-title {
+      text-align: center;
+      font-family: 'Comic Sans MS', 'Segoe Print', cursive;
+      font-size: clamp(40px, 8.5vw, 88px);
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #111;
+      transform: rotate(-1deg);
+      line-height: 1.1;
+    }
+    .loading-subtitle {
+      text-align: center;
+      font-family: 'Comic Sans MS', 'Segoe Print', cursive;
+      font-size: clamp(30px, 6.5vw, 62px);
+      letter-spacing: 1px;
+      color: #111;
+      transform: rotate(0.8deg);
+      line-height: 1.1;
     }
     .loading-top {
       display: flex;
@@ -333,11 +352,13 @@
 
   <div id="loading-overlay">
     <div class="loading-card">
+      <div class="loading-title">Coop, Migros, and Me</div>
       <div class="loading-top">
         <div class="loading-bar"><div class="loading-fill" id="loading-fill"></div></div>
         <div class="loading-percent" id="loading-percent">0%</div>
       </div>
       <div class="loading-label" id="loading-text">D1</div>
+      <div class="loading-subtitle">Swiss On The Move</div>
     </div>
   </div>
 </div>
@@ -788,6 +809,36 @@
     return bounds && bounds.isValid() ? bounds : null;
   }
 
+  // #map 為了做出「內容超出有機外框」的效果，套用了 CSS transform: translate(3%, 6%)
+  // （相對於 #map 自己 130% 寬高的比例），這個位移只在畫面「畫出來」時發生，Leaflet 自己
+  // 算出來的置中位置並不知道這件事。這裡不是等動畫飛完再瞬間校正一次（那樣會變成
+  // 「飛過去→又跳一下」的兩段式動作，看起來像沒有動畫），而是在開始飛之前，
+  // 先用 Leaflet 自己算 bounds 用的內部方法算出「原本會飛去哪裡」，把那個目標點
+  // 反向位移抵銷，直接一次飛到「校正後」的正確位置，只有一段連續的縮放動畫。
+  function computeCorrectedTarget(bounds, options) {
+    const raw = map._getBoundsCenterZoom(bounds, options); // { center, zoom }，跟 fitBounds/flyToBounds 內部算法完全一致
+    const containerEl = document.getElementById('map-container');
+    const w = containerEl.clientWidth;
+    const h = containerEl.clientHeight;
+    const dxPx = 0.03 * 1.30 * w; // 對應 CSS: transform translate(3%, ...)
+    const dyPx = 0.06 * 1.30 * h; // 對應 CSS: transform translate(..., 6%)
+    const centerPoint = map.project(raw.center, raw.zoom);
+    const correctedCenter = map.unproject(centerPoint.add(L.point(dxPx, dyPx)), raw.zoom);
+    return { center: correctedCenter, zoom: raw.zoom };
+  }
+
+  // 包一層 fitBounds / flyToBounds：直接飛到「已校正」的目標點與縮放層級，
+  // options.animate === false 時用瞬間的 setView，其餘用有動畫的 flyTo。
+  function fitBoundsCorrected(bounds, options = {}) {
+    if (!bounds || !bounds.isValid()) return;
+    const target = computeCorrectedTarget(bounds, options);
+    if (options.animate === false) {
+      map.setView(target.center, target.zoom, { animate: false });
+    } else {
+      map.flyTo(target.center, target.zoom, { duration: options.duration ?? 1.0 });
+    }
+  }
+
   async function selectDay(dayKey) {
     if (isRendering) return;
     closePanel(false);
@@ -798,7 +849,7 @@
       const bounds = getBoundsForLayer(layer);
       if (bounds) {
         map.invalidateSize({ pan: false });
-        map.flyToBounds(bounds, {
+        fitBoundsCorrected(bounds, {
           padding: [80, 80],
           maxZoom: 13,
           duration: 1.0
@@ -820,7 +871,7 @@
       const bounds = getBoundsForLayer(layer);
       if (bounds) {
         map.invalidateSize({ pan: false });
-        map.flyToBounds(bounds, {
+        fitBoundsCorrected(bounds, {
           padding: [80, 80],
           maxZoom: 13,
           duration: 1.0
@@ -860,9 +911,10 @@
     });
     if (combined?.isValid()) {
       map.invalidateSize({ pan: false });
-      map.fitBounds(combined, {
+      fitBoundsCorrected(combined, {
         padding: [55, 55],
-        maxZoom: 10
+        maxZoom: 10,
+        animate: false
       });
     }
   }
@@ -887,7 +939,8 @@
   function renderPhotos(stop) {
     const box = document.getElementById('panel-photos');
     box.innerHTML = '';
-    if ((stop.type !== 'landmark' && stop.type !== 'architecture') || !stop.name) {
+    const PHOTO_TYPES = ['landmark', 'architecture', 'market', 'hotel'];
+    if (!PHOTO_TYPES.includes(stop.type) || !stop.name) {
       box.style.display = 'none';
       return;
     }
@@ -956,7 +1009,7 @@
       activeDayKey = 'day1';
       allDaysMode = false;
       const bounds = getBoundsForLayer(layer);
-      if (bounds) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13 });
+      if (bounds) fitBoundsCorrected(bounds, { padding: [60, 60], maxZoom: 13, animate: false });
       setLoadingProgress(100);
       await new Promise(r => setTimeout(r, 160));
     } catch (error) {
