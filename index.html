@@ -370,15 +370,17 @@
   </defs>
 </svg>
 <script>
+  // 給邊界多留一點緩衝空間（原本剛好貼著瑞士國界，D10、D16 這種路線本身就
+  // 靠近邊界，拖曳很容易立刻頂到牆壁動不了），往外各多留約 0.6 度
   const switzerlandBounds = L.latLngBounds(
-    L.latLng(45.75, 5.85),
-    L.latLng(47.88, 10.65)
+    L.latLng(45.75 - 0.6, 5.85 - 0.6),
+    L.latLng(47.88 + 0.6, 10.65 + 0.6)
   );
 
   const map = L.map('map', {
     zoomControl: false,
     maxBounds: switzerlandBounds,
-    maxBoundsViscosity: 1.0,
+    maxBoundsViscosity: 0.6, // 從 1.0（完全鎖死）調鬆，邊界處仍會被拉回但不會卡死
     minZoom: 7,
     maxZoom: 18
   });
@@ -391,6 +393,66 @@
   tileLayer.getContainer().style.filter = 'grayscale(100%) contrast(85%) brightness(108%)';
 
   L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  // 畫出瑞士真實國界輪廓（虛線），讓不熟悉瑞士地理的人也能一眼看出地圖範圍。
+  // 直接向 Overpass 抓 OSM 自己的行政邊界資料（底圖磁磚本身就是用這份資料畫的），
+  // 保證虛線跟底圖上原本那條灰色國界線完全貼合，不會像簡化版多邊形那樣對不上。
+  function drawSwissBorderFromOverpass() {
+    // 先找到瑞士的行政邊界 relation，存進 .ch 這個結果集；
+    // 再用 way(r.ch) 把該 relation 底下所有組成邊界的 way 路徑段落展開出來，
+    // 這樣 out geom 才會真的回傳每一段的完整座標，而不是只有 relation 本身的摘要資訊。
+    const query = `
+      [out:json][timeout:30];
+      relation["boundary"="administrative"]["admin_level"="2"]["ISO3166-1"="CH"]->.ch;
+      way(r.ch);
+      out geom;
+    `;
+    return fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(query)
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        if (!data.elements || !data.elements.length) throw new Error('Overpass 沒有回傳邊界資料');
+        let segmentCount = 0;
+        const borderLayer = L.layerGroup();
+        data.elements.forEach(el => {
+          if (el.type === 'way' && el.geometry && el.geometry.length > 1) {
+            const latlngs = el.geometry.map(pt => [pt.lat, pt.lon]);
+            L.polyline(latlngs, {
+              color: '#111',
+              weight: 1.8,
+              dashArray: '5, 4',
+              opacity: 0.8,
+              interactive: false
+            }).addTo(borderLayer);
+            segmentCount++;
+          }
+        });
+        if (segmentCount === 0) throw new Error('邊界資料裡沒有可畫的線段');
+        borderLayer.addTo(map);
+      });
+  }
+
+  // 簡化版備援：Overpass 抓不到或逾時的時候，退回粗略的世界國界資料，至少有輪廓可看
+  function drawSwissBorderFallback() {
+    return fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries/CHE.geo.json')
+      .then(res => res.json())
+      .then(geojson => {
+        L.geoJSON(geojson, {
+          style: { color: '#111', weight: 1.8, dashArray: '5, 4', fillOpacity: 0, opacity: 0.8 },
+          interactive: false
+        }).addTo(map);
+      });
+  }
+
+  drawSwissBorderFromOverpass().catch(err => {
+    console.warn('精細版瑞士國界載入失敗，改用簡化版：', err);
+    drawSwissBorderFallback().catch(err2 => console.warn('簡化版國界也載入失敗（不影響其他功能）：', err2));
+  });
 
   map.on('click', () => {
     if (!isRendering) renderAllDays();
@@ -736,7 +798,7 @@
     const day = itinerary[dayKey];
     if (!day || !day.stops || day.stops.length < 2) throw new Error(`Invalid itinerary: ${dayKey}`);
 
-    const layer = L.layerGroup();
+    const layer = L.featureGroup();
     buildMarkersForDay(dayKey, layer);
 
     const realStops = day.stops.filter(s => s.type !== 'waypoint');
@@ -817,25 +879,49 @@
   // 反向位移抵銷，直接一次飛到「校正後」的正確位置，只有一段連續的縮放動畫。
   function computeCorrectedTarget(bounds, options) {
     const raw = map._getBoundsCenterZoom(bounds, options); // { center, zoom }，跟 fitBounds/flyToBounds 內部算法完全一致
+
+    // 縮小一格，大約等於滑鼠滾輪往外滾一次，讓路線周圍多留一點空間，不要貼死在邊緣
+    const zoomOut = options.zoomOut ?? 1;
+    const zoom = Math.max(map.getMinZoom(), raw.zoom - zoomOut);
+
     const containerEl = document.getElementById('map-container');
     const w = containerEl.clientWidth;
     const h = containerEl.clientHeight;
     const dxPx = 0.03 * 1.30 * w; // 對應 CSS: transform translate(3%, ...)
     const dyPx = 0.06 * 1.30 * h; // 對應 CSS: transform translate(..., 6%)
-    const centerPoint = map.project(raw.center, raw.zoom);
-    const correctedCenter = map.unproject(centerPoint.add(L.point(dxPx, dyPx)), raw.zoom);
-    return { center: correctedCenter, zoom: raw.zoom };
+    const centerPoint = map.project(raw.center, zoom);
+    const correctedCenter = map.unproject(centerPoint.add(L.point(dxPx, dyPx)), zoom);
+    return { center: correctedCenter, zoom };
   }
 
   // 包一層 fitBounds / flyToBounds：直接飛到「已校正」的目標點與縮放層級，
   // options.animate === false 時用瞬間的 setView，其餘用有動畫的 flyTo。
+  // 如果校正計算本身出錯（例如某天的座標範圍算出異常值），就退回原本沒校正過的
+  // flyToBounds/fitBounds，確保地圖一定會動，不會整個靜止不動又沒有任何提示。
   function fitBoundsCorrected(bounds, options = {}) {
     if (!bounds || !bounds.isValid()) return;
-    const target = computeCorrectedTarget(bounds, options);
-    if (options.animate === false) {
-      map.setView(target.center, target.zoom, { animate: false });
-    } else {
-      map.flyTo(target.center, target.zoom, { duration: options.duration ?? 1.0 });
+    try {
+      const target = computeCorrectedTarget(bounds, options);
+      if (!target || !target.center || !isFinite(target.zoom)) {
+        throw new Error('computeCorrectedTarget 回傳了無效的目標');
+      }
+      if (options.animate === false) {
+        map.setView(target.center, target.zoom, { animate: false });
+      } else {
+        map.flyTo(target.center, target.zoom, { duration: options.duration ?? 1.0 });
+      }
+    } catch (error) {
+      console.warn('視覺置中校正失敗，改用未校正的 fitBounds/flyToBounds：', error);
+      // 就算走退回路徑，也維持同樣縮小一格的效果：把 maxZoom 上限降低對應的量
+      const fallbackOptions = { ...options };
+      if (typeof fallbackOptions.maxZoom === 'number') {
+        fallbackOptions.maxZoom = Math.max(map.getMinZoom(), fallbackOptions.maxZoom - (options.zoomOut ?? 1));
+      }
+      if (options.animate === false) {
+        map.fitBounds(bounds, fallbackOptions);
+      } else {
+        map.flyToBounds(bounds, fallbackOptions);
+      }
     }
   }
 
